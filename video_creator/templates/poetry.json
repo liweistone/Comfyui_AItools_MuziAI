@@ -1,0 +1,46 @@
+{
+"instruction": "请将中国古典诗词转化为短视频剧本，注重意境传达和现代诠释。要求：1.保留原诗意境 2.可加入合理想象 3.包含3-5个关键场景 4.适合1-3分钟的短视频",
+"examples": [
+{
+"idea": "王之涣《登鹳雀楼》",
+"script": "开场: (字幕渐显)白日依山尽...\n场景1: (远景)夕阳缓缓沉入连绵群山，黄河奔腾\n场景2: (中景)古代诗人凭栏远眺，衣袖随风飘动\n场景3: (特写)诗人执笔题诗，墨迹晕染\n场景4: (蒙太奇)现代城市高楼与古楼叠化，呼应'更上一层楼'",
+"storyboard": "镜头1: (大远景)落日余晖中的山河全景，动态云层\n镜头2: (中景)诗人背影，推镜头至面部沉思表情\n镜头3: (俯拍)毛笔特写，墨汁在纸上晕染\n镜头4: (叠化转场)从古建筑飞檐切换到现代玻璃幕墙大厦",
+"prompts": "1. 中国山水画风格的落日场景，黄河蜿蜒如金带，Cinematic lighting, 8K, --ar 16:9\n2. 唐代文人装束的男子在古楼眺望，衣袂飘飘，虚幻引擎渲染，细节丰富\n3. 毛笔在宣纸上书写《登鹳雀楼》的特写，墨迹动态效果，4K macro shot\n4. 古今建筑对比蒙太奇，时间流逝感，柔焦过渡，电影质感"
+},
+{
+"idea": "李白《静夜思》",
+"script": "开场: (月光特效)床前明月光...\n场景1: (移镜头)古代客栈房间，月光透过雕花窗\n场景2: (主观镜头)角色起身望向窗外明月\n场景3: (闪回)童年故乡庭院同样月色的回忆\n场景4: (推镜头)桌上家书特写，墨迹未干",
+"storyboard": "镜头1: (低角度)月光透过窗棂在地面形成光斑\n镜头2: (手持镜头)模仿主角视线从床榻到窗外的运动\n镜头3: (柔焦)回忆片段，孩童在庭院望月的背影\n镜头4: (微距)宣纸上的'故乡'二字墨迹反光",
+"prompts": "1. 唐代风格的客栈内景，月光投影， volumetric lighting, 8K\n2. 第一人称视角镜头，从床榻到窗外的平滑移动，电影运镜\n3. 怀旧色调的童年记忆场景，柔焦效果， nostalgic atmosphere\n4. 书法特写，纸张纹理清晰，墨水反光细节， studio lighting"
+}
+],
+"default_prompt_style": "中国风，电影质感，注重光影层次，8K分辨率，适度留白构图",
+"shot_types": [
+{
+"name": "landscape_shot",
+"description": "意境空镜",
+"prompt_template": "{time_period}的{landscape_feature}，{weather_condition}，{art_style}风格，{lighting}，{composition}"
+},
+{
+"name": "poet_shot",
+"description": "诗人镜头",
+"prompt_template": "{dynasty}装束的诗人{action}，{clothing_detail}，{facial_expression}，{background}背景，{camera_angle}镜头"
+},
+{
+"name": "calligraphy_shot",
+"description": "书法镜头",
+"prompt_template": "{writing_tool}在{paper_type}上书写的{speed}特写，墨水{ink_effect}，{focus_style}，{lighting_condition}"
+},
+{
+"name": "modern_transition",
+"description": "古今转场",
+"prompt_template": "从{ancient_element}到{modern_element}的{transition_type}转场，表达{theme}主题，{color_grading}色调"
+}
+],
+"special_notes": [
+"建议使用中国风水墨动画风格或写实电影风格",
+"可加入古筝、笛子等传统乐器配乐",
+"字幕建议使用书法字体",
+"转场可使用卷轴展开、墨迹晕染等传统元素"
+]
+}

@@ -1,0 +1,35 @@
+{
+    "instruction": "请创作一个纪实风格的短视频剧本，注重真实感和信息传达。要求：1.基于事实或真实场景 2.包含解说词框架 3.有2-3个关键采访点 4.适合3-5分钟的短视频",
+    "examples": [
+        {
+            "idea": "城市里的传统手艺人",
+            "script": "开场: (解说词)在现代化大都市的角落，仍有一群坚守传统手艺的匠人...\n场景1: 跟拍老鞋匠张师傅的工作日常...\n采访1: '我做这行已经40年了...'(谈手艺传承)",
+            "storyboard": "镜头1: (全景)城市天际线，慢慢下移到老城区小巷\n镜头2: (特写)老鞋匠粗糙的双手正在缝制皮鞋\n镜头3: (中景)采访画面，背景是工作台",
+            "prompts": "1. A wide shot of a modern city skyline, slowly panning down to an old alleyway, documentary style, natural lighting, 4K footage\n2. Close-up of an elderly shoemaker's weathered hands meticulously stitching leather, shallow depth of field, warm workshop lighting\n3. Medium shot of an interview with the craftsman, slightly off-center framing, authentic atmosphere"
+        },
+        {
+            "idea": "菜市场里的生活哲学",
+            "script": "开场: (解说词)每天清晨，这里是最早苏醒的地方...\n场景1: 跟拍凌晨4点批发市场的准备工作\n采访1: 蔬菜摊主谈论二十年如一日的坚持",
+            "storyboard": "镜头1: (延时摄影)星空过渡到市场灯光陆续亮起\n镜头2: (手持跟拍)摊主搬运蔬菜箱子的过程\n镜头3: (过肩镜头)采访摊主，背景是忙碌的市场",
+            "prompts": "1. 从星夜过渡到市场灯火通明的延时拍摄，纪实风格，冷色到暖色变化\n2. 手持跟踪镜头跟随一个搬运蔬菜箱的小贩，自然的晨光，轻微的运动模糊\n3. 以市场活动为背景的过肩采访拍摄，景深浅，真实的氛围"
+        }
+    ],
+    "default_prompt_style": "Documentary style, natural lighting, authentic atmosphere, 4K footage, cinematic but realistic, slight film grain effect",
+    "shot_types": [
+        {
+            "name": "establishing_shot",
+            "description": "全景交代环境",
+            "prompt_template": "Wide establishing shot of {location}, showing the overall environment, documentary style, natural lighting, {time_of_day}"
+        },
+        {
+            "name": "process_shot",
+            "description": "工作过程跟拍",
+            "prompt_template": "Handheld tracking shot following {subject} while they {action}, documentary style, natural motion blur, authentic atmosphere"
+        },
+        {
+            "name": "interview",
+            "description": "采访画面",
+            "prompt_template": "Medium close-up interview shot of {subject}, {framing} framing, {background} in background, documentary style, natural lighting"
+        }
+    ]
+}
