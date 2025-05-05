@@ -1,0 +1,2 @@
+# Comfyui_AItools_MuziAI
+本插件主节点采用gemini_ai的开放接口开发，主要为comfyui图片生成、视频制作全流程化而设计。
