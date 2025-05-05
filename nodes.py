@@ -4,14 +4,201 @@ import torch
 import comfy.utils
 from comfy.sd import load_lora_for_models
 from nodes import LoraLoader
+from tqdm import tqdm
+import requests
+import time
+import traceback
+import numpy as np
+from PIL import Image, ImageOps
+import node_helpers
+from colour.io.luts.iridas_cube import read_LUT_IridasCube
 
+##############################################
+#                Lora下载器                  #
+##############################################
+class LoraDownloader:
+    """
+    完整的Lora文件下载器，支持多源下载和自动重试
+    """
+    @classmethod
+    def get_lora_dir(cls):
+        """获取Lora存储目录"""
+        plugin_dir = os.path.dirname(os.path.realpath(__file__))
+        loras_dir = os.path.join(plugin_dir, "loras")
+        os.makedirs(loras_dir, exist_ok=True)
+        return loras_dir
 
+    @classmethod
+    def download_lora(cls, lora_url, lora_name, max_retries=3, timeout=60):
+        """
+        完整的Lora下载方法
+        """
+        loras_dir = cls.get_lora_dir()
+        lora_path = os.path.join(loras_dir, lora_name)
+        
+        # 检查文件是否已存在且完整
+        if os.path.exists(lora_path) and os.path.getsize(lora_path) > 1024*1024:
+            try:
+                # 验证文件是否可加载
+                comfy.utils.load_torch_file(lora_path, safe_load=True)
+                print(f"[Lora下载器] 使用现有有效文件: {lora_path}")
+                return lora_path
+            except:
+                print(f"[Lora下载器] 文件损坏，将重新下载: {lora_path}")
+                os.remove(lora_path)
 
+        # 准备备用下载源
+        mirror_url = lora_url.replace(
+            "https://huggingface.co", 
+            "https://hf-mirror.com"
+        )
+        urls_to_try = [mirror_url, lora_url]
 
-#==============💓胸部大小调节器(公众号懂AI的木子)==================
-class BreastSizeAdjuster:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
+
+        last_error = None
+        for retry in range(max_retries):
+            for url in urls_to_try:
+                try:
+                    print(f"\n[Lora下载器] 尝试下载(源: {url})...")
+                    response = requests.get(
+                        url,
+                        headers=headers,
+                        stream=True,
+                        timeout=timeout
+                    )
+                    response.raise_for_status()
+
+                    total_size = int(response.headers.get('content-length', 0))
+                    if total_size < 1024*1024:
+                        raise ValueError(f"文件大小异常: {total_size}字节")
+
+                    # 下载文件
+                    with open(lora_path, 'wb') as f:
+                        with tqdm(
+                            total=total_size,
+                            unit='B',
+                            unit_scale=True,
+                            unit_divisor=1024,
+                            desc=f"下载 {lora_name}",
+                            miniters=1
+                        ) as pbar:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    pbar.update(len(chunk))
+
+                    # 验证文件完整性
+                    if os.path.getsize(lora_path) == total_size:
+                        try:
+                            # 验证文件可加载
+                            comfy.utils.load_torch_file(lora_path, safe_load=True)
+                            print(f"[Lora下载器] 下载成功: {lora_path}")
+                            return lora_path
+                        except Exception as e:
+                            os.remove(lora_path)
+                            raise ValueError(f"下载文件无法加载: {str(e)}")
+                    else:
+                        os.remove(lora_path)
+                        raise IOError("文件下载不完整")
+
+                except Exception as e:
+                    last_error = e
+                    print(f"[Lora下载器] 下载失败: {str(e)}")
+                    if os.path.exists(lora_path):
+                        os.remove(lora_path)
+                    
+                    if retry < max_retries - 1:
+                        wait_time = 2 ** retry
+                        print(f"[Lora下载器] {wait_time}秒后重试...")
+                        time.sleep(wait_time)
+                    continue
+
+        print(f"\n[Lora下载器] 所有尝试失败! 请手动下载:")
+        print(f"URL: {lora_url}")
+        print(f"保存到: {loras_dir}")
+        return None
+
+##############################################
+#             基础Lora加载类                 #
+##############################################
+class BaseLoraLoader:
+    """
+    完整的Lora加载基类
+    """
     def __init__(self):
         self.loaded_lora = None
+        self.lora_name = None
+        self.lora_url = None
+
+    def get_lora_path(self):
+        """获取Lora路径的完整实现"""
+        if not self.lora_name or not self.lora_url:
+            raise ValueError("Lora文件名或URL未设置")
+
+        print(f"\n[Lora加载器] 检查Lora文件: {self.lora_name}")
+        return LoraDownloader.download_lora(self.lora_url, self.lora_name)
+
+    def apply_lora(self, model, clip, strength, info_text=None):
+        """应用Lora的完整实现"""
+        if strength == 0:
+            print("[Lora加载器] 强度为0，跳过应用")
+            return (model, clip)
+
+        lora_path = self.get_lora_path()
+        if not lora_path:
+            print("[Lora加载器] 无法获取Lora文件，使用原始模型")
+            return (model, clip)
+
+        # 检查是否已加载相同的Lora
+        if self.loaded_lora and self.loaded_lora[0] == lora_path:
+            print("[Lora加载器] 使用已加载的Lora缓存")
+            lora = self.loaded_lora[1]
+        else:
+            # 清理旧Lora
+            if self.loaded_lora:
+                old_lora = self.loaded_lora
+                self.loaded_lora = None
+                del old_lora
+
+            # 加载新Lora
+            try:
+                print(f"[Lora加载器] 加载Lora文件: {lora_path}")
+                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
+                self.loaded_lora = (lora_path, lora)
+                print("[Lora加载器] Lora文件加载成功")
+            except Exception as e:
+                print(f"[Lora加载器] 加载失败: {str(e)}")
+                traceback.print_exc()
+                return (model, clip)
+
+        # 应用Lora
+        try:
+            print(f"[Lora加载器] 应用Lora，强度: {strength}")
+            model_lora, clip_lora = load_lora_for_models(
+                model, 
+                clip, 
+                lora,
+                strength,
+                strength
+            )
+            print("[Lora加载器] Lora应用成功")
+            return (model_lora, clip_lora)
+        except Exception as e:
+            print(f"[Lora加载器] 应用失败: {str(e)}")
+            traceback.print_exc()
+            return (model, clip)
+
+##############################################
+#             各功能调节器实现                #
+##############################################
+
+#==============💓胸部大小调节器==================
+class BreastSizeAdjuster(BaseLoraLoader):
+    def __init__(self):
+        super().__init__()
         self.lora_name = "breast_size_lora.safetensors"
         self.lora_url = "https://huggingface.co/liguanwei/mymodels/resolve/main/breast_size_lora.safetensors"
     
@@ -50,74 +237,13 @@ class BreastSizeAdjuster:
     CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
     OUTPUT_NODE = True
     
-    def get_lora_path(self):
-        plugin_dir = os.path.dirname(os.path.realpath(__file__))
-        loras_dir = os.path.join(plugin_dir, "loras")
-        os.makedirs(loras_dir, exist_ok=True)
-        
-        lora_path = os.path.join(loras_dir, self.lora_name)
-        
-        if not os.path.exists(lora_path):
-            try:
-                import requests
-                print(f"正在下载胸部大小LoRA模型...")
-                response = requests.get(self.lora_url, stream=True)
-                response.raise_for_status()
-                
-                with open(lora_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("胸部LoRA模型下载完成!")
-            except Exception as e:
-                print(f"胸部模型下载失败: {e}")
-                return None
-        
-        return lora_path
-    
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
-        if size_strength == 0:
-            return (model, clip)
-            
-        lora_path = self.get_lora_path()
-        if not lora_path:
-            print("无法加载胸部LoRA模型，使用原始模型")
-            return (model, clip)
-        
-        lora = None
-        if self.loaded_lora is not None:
-            if self.loaded_lora[0] == lora_path:
-                lora = self.loaded_lora[1]
-            else:
-                temp = self.loaded_lora
-                self.loaded_lora = None
-                del temp
+        return self.apply_lora(model, clip, size_strength, info_text)
 
-        if lora is None:
-            try:
-                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                self.loaded_lora = (lora_path, lora)
-            except Exception as e:
-                print(f"加载胸部LoRA文件失败: {e}")
-                return (model, clip)
-        
-        try:
-            model_lora, clip_lora = load_lora_for_models(
-                model, 
-                clip, 
-                lora,
-                size_strength,
-                size_strength
-            )
-            return (model_lora, clip_lora)
-        except Exception as e:
-            print(f"应用胸部LoRA时出错: {e}")
-            return (model, clip)
-
-
-#==============💓胸部大小调节器nswf版(木子AI)==================
-class BreastSizeAdjusternswf:
+#==============💓NSFW版胸部调节器===============
+class BreastSizeAdjusternswf(BaseLoraLoader):
     def __init__(self):
-        self.loaded_lora = None
+        super().__init__()
         self.lora_name = "breast_size_nswf.safetensors"
         self.lora_url = "https://huggingface.co/liguanwei/mymodels/resolve/main/breast_size_nswf.safetensors"
     
@@ -157,75 +283,13 @@ class BreastSizeAdjusternswf:
     CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
     OUTPUT_NODE = True
     
-    def get_lora_path(self):
-        plugin_dir = os.path.dirname(os.path.realpath(__file__))
-        loras_dir = os.path.join(plugin_dir, "loras")
-        os.makedirs(loras_dir, exist_ok=True)
-        
-        lora_path = os.path.join(loras_dir, self.lora_name)
-        
-        if not os.path.exists(lora_path):
-            try:
-                import requests
-                print(f"正在下载胸部大小LoRA模型...")
-                response = requests.get(self.lora_url, stream=True)
-                response.raise_for_status()
-                
-                with open(lora_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("胸部LoRA模型下载完成!")
-            except Exception as e:
-                print(f"胸部模型下载失败: {e}")
-                return None
-        
-        return lora_path
-    
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
-        if size_strength == 0:
-            return (model, clip)
-            
-        lora_path = self.get_lora_path()
-        if not lora_path:
-            print("无法加载胸部LoRA模型，使用原始模型")
-            return (model, clip)
-        
-        lora = None
-        if self.loaded_lora is not None:
-            if self.loaded_lora[0] == lora_path:
-                lora = self.loaded_lora[1]
-            else:
-                temp = self.loaded_lora
-                self.loaded_lora = None
-                del temp
+        return self.apply_lora(model, clip, size_strength, info_text)
 
-        if lora is None:
-            try:
-                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                self.loaded_lora = (lora_path, lora)
-            except Exception as e:
-                print(f"加载胸部LoRA文件失败: {e}")
-                return (model, clip)
-        
-        try:
-            model_lora, clip_lora = load_lora_for_models(
-                model, 
-                clip, 
-                lora,
-                size_strength,
-                size_strength
-            )
-            return (model_lora, clip_lora)
-        except Exception as e:
-            print(f"应用胸部LoRA时出错: {e}")
-            return (model, clip)
-
-
-
-#===============✋手部稳定调节器(木子AI)=============================
-class HandStabilityAdjuster:
+#==============✋手部稳定调节器=================
+class HandStabilityAdjuster(BaseLoraLoader):
     def __init__(self):
-        self.loaded_lora = None
+        super().__init__()
         self.lora_name = "hand_stability_lora.safetensors"
         self.lora_url = "https://huggingface.co/liguanwei/mymodels/resolve/main/hand_stability_lora.safetensors"
     
@@ -265,73 +329,13 @@ class HandStabilityAdjuster:
     CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
     OUTPUT_NODE = True
     
-    def get_lora_path(self):
-        plugin_dir = os.path.dirname(os.path.realpath(__file__))
-        loras_dir = os.path.join(plugin_dir, "loras")
-        os.makedirs(loras_dir, exist_ok=True)
-        
-        lora_path = os.path.join(loras_dir, self.lora_name)
-        
-        if not os.path.exists(lora_path):
-            try:
-                import requests
-                print(f"正在下载手部稳定LoRA模型...")
-                response = requests.get(self.lora_url, stream=True)
-                response.raise_for_status()
-                
-                with open(lora_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("手部LoRA模型下载完成!")
-            except Exception as e:
-                print(f"手部模型下载失败: {e}")
-                return None
-        
-        return lora_path
-    
     def apply_hand_stability(self, model, clip, stability_strength, info_text=None):
-        if stability_strength == 0:
-            return (model, clip)
-            
-        lora_path = self.get_lora_path()
-        if not lora_path:
-            print("无法加载手部LoRA模型，使用原始模型")
-            return (model, clip)
-        
-        lora = None
-        if self.loaded_lora is not None:
-            if self.loaded_lora[0] == lora_path:
-                lora = self.loaded_lora[1]
-            else:
-                temp = self.loaded_lora
-                self.loaded_lora = None
-                del temp
+        return self.apply_lora(model, clip, stability_strength, info_text)
 
-        if lora is None:
-            try:
-                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                self.loaded_lora = (lora_path, lora)
-            except Exception as e:
-                print(f"加载手部LoRA文件失败: {e}")
-                return (model, clip)
-        
-        try:
-            model_lora, clip_lora = load_lora_for_models(
-                model, 
-                clip, 
-                lora,
-                stability_strength,
-                stability_strength
-            )
-            return (model_lora, clip_lora)
-        except Exception as e:
-            print(f"应用手部LoRA时出错: {e}")
-            return (model, clip)
-
-#=================性感风格调节器===============
-class SexyStyleAdjuster:
+#==============🔥性感风格调节器=================
+class SexyStyleAdjuster(BaseLoraLoader):
     def __init__(self):
-        self.loaded_lora = None
+        super().__init__()
         self.lora_name = "sexy_style_lora.safetensors"
         self.lora_url = "https://huggingface.co/liguanwei/mymodels/resolve/main/sexy_style_lora.safetensors"
     
@@ -371,78 +375,16 @@ class SexyStyleAdjuster:
     CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
     OUTPUT_NODE = True
     
-    def get_lora_path(self):
-        plugin_dir = os.path.dirname(os.path.realpath(__file__))
-        loras_dir = os.path.join(plugin_dir, "loras")
-        os.makedirs(loras_dir, exist_ok=True)
-        
-        lora_path = os.path.join(loras_dir, self.lora_name)
-        
-        if not os.path.exists(lora_path):
-            try:
-                import requests
-                print(f"正在下载性感风格LoRA模型...")
-                response = requests.get(self.lora_url, stream=True)
-                response.raise_for_status()
-                
-                with open(lora_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("性感风格LoRA模型下载完成!")
-            except Exception as e:
-                print(f"性感风格模型下载失败: {e}")
-                return None
-        
-        return lora_path
-    
     def apply_sexy_style(self, model, clip, sexy_strength, info_text=None):
-        if sexy_strength == 0:
-            return (model, clip)
-            
-        lora_path = self.get_lora_path()
-        if not lora_path:
-            print("无法加载性感风格LoRA模型，使用原始模型")
-            return (model, clip)
-        
-        lora = None
-        if self.loaded_lora is not None:
-            if self.loaded_lora[0] == lora_path:
-                lora = self.loaded_lora[1]
-            else:
-                temp = self.loaded_lora
-                self.loaded_lora = None
-                del temp
+        return self.apply_lora(model, clip, sexy_strength, info_text)
 
-        if lora is None:
-            try:
-                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                self.loaded_lora = (lora_path, lora)
-            except Exception as e:
-                print(f"加载性感风格LoRA文件失败: {e}")
-                return (model, clip)
-        
-        try:
-            model_lora, clip_lora = load_lora_for_models(
-                model, 
-                clip, 
-                lora,
-                sexy_strength,
-                sexy_strength
-            )
-            return (model_lora, clip_lora)
-        except Exception as e:
-            print(f"应用性感风格LoRA时出错: {e}")
-            return (model, clip)
-
-
-
-#==============网红网感调节器==================
-class Influencer_regulator:
+#==============😍网红网感调节器=================
+class Influencer_regulator(BaseLoraLoader):
     def __init__(self):
-        self.loaded_lora = None
+        super().__init__()
         self.lora_name = "Beautifulgirl_size_lora.safetensors"
         self.lora_url = "https://huggingface.co/liguanwei/mymodels/resolve/main/Beautifulgirl_size_lora.safetensors"
-
+    
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -480,94 +422,22 @@ class Influencer_regulator:
     CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
     OUTPUT_NODE = True
     
-    def get_lora_path(self):
-        plugin_dir = os.path.dirname(os.path.realpath(__file__))
-        loras_dir = os.path.join(plugin_dir, "loras")
-        os.makedirs(loras_dir, exist_ok=True)
-        
-        lora_path = os.path.join(loras_dir, self.lora_name)
-        
-        if not os.path.exists(lora_path):
-            try:
-                import requests
-                print(f"正在下载网感调节器模型...")
-                response = requests.get(self.lora_url, stream=True)
-                response.raise_for_status()
-                
-                with open(lora_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("网感调节器模型下载完成!")
-            except Exception as e:
-                print(f"网感调节器模型下载失败: {e}")
-                return None
-        
-        return lora_path
-    
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
-        if size_strength == 0:
-            return (model, clip)
-            
-        lora_path = self.get_lora_path()
-        if not lora_path:
-            print("无法加载网感调节器模型，使用原始模型")
-            return (model, clip)
-        
-        lora = None
-        if self.loaded_lora is not None:
-            if self.loaded_lora[0] == lora_path:
-                lora = self.loaded_lora[1]
-            else:
-                temp = self.loaded_lora
-                self.loaded_lora = None
-                del temp
+        return self.apply_lora(model, clip, size_strength, info_text)
 
-        if lora is None:
-            try:
-                lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                self.loaded_lora = (lora_path, lora)
-            except Exception as e:
-                print(f"加载网感调节器文件失败: {e}")
-                return (model, clip)
-        
-        try:
-            model_lora, clip_lora = load_lora_for_models(
-                model, 
-                clip, 
-                lora,
-                size_strength,
-                size_strength
-            )
-            return (model_lora, clip_lora)
-        except Exception as e:
-            print(f"应用网感调节器时出错: {e}")
-            return (model, clip)
-
-
-
-#-============图像应用lut 滤镜风格调节器 代码构建开始=========
-import os
-import requests
-from pathlib import Path
-import torch
-import numpy as np
-import folder_paths
-from tqdm import tqdm
-import inspect
-
-
+##############################################
+#                LUT滤镜相关                 #
+##############################################
 class LUTDownloader:
-    LUT_REPO = "https://huggingface.co/datasets/liguanwei/luts/resolve/main/"  # 注意结尾的斜杠
+    LUT_REPO = "https://huggingface.co/datasets/liguanwei/luts/resolve/main/"
     LUT_FILES = [
         "快速电影.cube",
         "时尚电影.cube",
         "胶片颗粒质感电影.cube"
-    ]  # 示例LUT文件列表
+    ]
     
     @classmethod
     def get_lut_dir(cls):
-        """获取与nodes.py同级的luts目录"""
-        # 获取nodes.py的绝对路径
         current_script_path = os.path.abspath(inspect.getfile(inspect.currentframe()))
         plugin_dir = os.path.dirname(current_script_path)
         lut_dir = os.path.join(plugin_dir, "luts")
@@ -575,60 +445,47 @@ class LUTDownloader:
         return lut_dir
     
     @classmethod
-    def download_luts(cls, verbose=False):
+    def download_luts(cls):
         try:
             lut_dir = cls.get_lut_dir()
-            if verbose:
-                print(f"[LUT下载器] LUT存储目录: {lut_dir}")
             
             for lut_file in cls.LUT_FILES:
                 dest_path = os.path.join(lut_dir, lut_file)
                 if not os.path.exists(dest_path):
                     try:
                         url = cls.LUT_REPO + lut_file
-                        if verbose:
-                            print(f"[LUT下载器] 正在下载: {url}")
+                        print(f"[LUT下载器] 正在下载: {url}")
                         response = requests.get(url, stream=True)
                         response.raise_for_status()
                         
                         total_size = int(response.headers.get('content-length', 0))
                         with open(dest_path, 'wb') as f:
-                            if verbose:
-                                with tqdm(
-                                    desc=f"下载 {lut_file}",
-                                    total=total_size,
-                                    unit='iB',
-                                    unit_scale=True,
-                                    unit_divisor=1024,
-                                ) as bar:
-                                    for data in response.iter_content(chunk_size=1024):
-                                        size = f.write(data)
-                                        bar.update(size)
-                                print(f"[LUT下载器] 成功下载到: {dest_path}")
-                            else:
+                            with tqdm(
+                                desc=f"下载 {lut_file}",
+                                total=total_size,
+                                unit='iB',
+                                unit_scale=True,
+                                unit_divisor=1024,
+                            ) as bar:
                                 for data in response.iter_content(chunk_size=1024):
-                                    f.write(data)
+                                    size = f.write(data)
+                                    bar.update(size)
+                        print(f"[LUT下载器] 成功下载到: {dest_path}")
                     except Exception as e:
                         print(f"[LUT下载器] 下载失败 {lut_file}: {str(e)}")
-                elif verbose:
-                    print(f"[LUT下载器] 文件已存在: {dest_path}")
         except Exception as e:
             print(f"[LUT下载器] 初始化错误: {str(e)}")
-
 
 class ESSImageApplyLUT:
     @classmethod
     def INPUT_TYPES(s):
-        # 确保LUT文件已下载
         LUTDownloader.download_luts()
         
-        # 从插件目录获取LUT文件
         lut_dir = LUTDownloader.get_lut_dir()
         lut_files = []
         try:
             lut_files = [f for f in os.listdir(lut_dir) 
                         if f.lower().endswith('.cube') and os.path.isfile(os.path.join(lut_dir, f))]
-            print(f"[滤镜节点] 可用LUT文件: {lut_files}")
         except Exception as e:
             print(f"[滤镜节点] 获取LUT列表错误: {str(e)}")
         
@@ -653,7 +510,7 @@ class ESSImageApplyLUT:
                               "1. 连接到图片节点\n"
                 }),
             }
-            }
+        }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "execute"
@@ -662,22 +519,14 @@ class ESSImageApplyLUT:
 
     def execute(self, image, lut_file, gamma_correction, clip_values, strength, info_text=None):
         try:
-            # 获取插件目录下的LUT文件
             lut_dir = LUTDownloader.get_lut_dir()
             lut_file_path = os.path.join(lut_dir, lut_file)
             
-            print(f"[滤镜节点] 正在加载LUT: {lut_file_path}")
-            
-            # 验证文件是否存在且可读
             if not os.path.isfile(lut_file_path):
                 raise FileNotFoundError(f"LUT文件不存在: {lut_file_path}")
             if not os.access(lut_file_path, os.R_OK):
                 raise PermissionError(f"无法读取LUT文件: {lut_file_path}")
             
-            from colour.io.luts.iridas_cube import read_LUT_IridasCube
-            
-            # 处理图像
-            device = image.device
             lut = read_LUT_IridasCube(lut_file_path)
             lut.name = lut_file
 
@@ -685,10 +534,10 @@ class ESSImageApplyLUT:
                 if lut.domain[0].max() == lut.domain[0].min() and lut.domain[1].max() == lut.domain[1].min():
                     lut.table = np.clip(lut.table, lut.domain[0, 0], lut.domain[1, 0])
                 else:
-                    if len(lut.table.shape) == 2:  # 3x1D
+                    if len(lut.table.shape) == 2:
                         for dim in range(3):
                             lut.table[:, dim] = np.clip(lut.table[:, dim], lut.domain[0, dim], lut.domain[1, dim])
-                    else:  # 3D
+                    else:
                         for dim in range(3):
                             lut.table[:, :, :, dim] = np.clip(lut.table[:, :, :, dim], lut.domain[0, dim], lut.domain[1, dim])
 
@@ -709,7 +558,7 @@ class ESSImageApplyLUT:
                 if is_non_default_domain:
                     lut_img = (lut_img - lut.domain[0]) / dom_scale
 
-                lut_img = torch.from_numpy(lut_img).to(device)
+                lut_img = torch.from_numpy(lut_img).to(image.device)
                 if strength < 1.0:
                     lut_img = strength * lut_img + (1 - strength) * img
                 out.append(lut_img)
@@ -720,18 +569,12 @@ class ESSImageApplyLUT:
             print(f"[滤镜节点] 处理错误: {str(e)}")
             return (image, )
 
-#--------------------------图像应用lut 代码构建结束------------------
-
-#--------------------------字符切换------------------
-import comfy
-import torch
-
+##############################################
+#               字符选择器                 #
+##############################################
 class HiddenStringSwitch:
-    """
-    隐藏字符串列表的切换器，只显示计数器
-    """
     def __init__(self):
-        pass  # 不再需要预先生成列表
+        pass
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -740,7 +583,7 @@ class HiddenStringSwitch:
                 "index": ("INT", {
                     "default": 1,
                     "min": 1,
-                    "max": 5000,  # 最大值设为5000
+                    "max": 5000,
                     "step": 1,
                     "display": "counter"
                 }),
@@ -753,18 +596,13 @@ class HiddenStringSwitch:
     CATEGORY = "🎨公众号懂AI的木子做号工具/工具杂项"
 
     def switch(self, index):
-        max_num = 5000  # 设置最大值
-        selected_index = max(1, min(index, max_num))  # 确保索引在1~5000范围内
-        return (str(selected_index), selected_index)  # 动态生成字符串
+        max_num = 5000
+        selected_index = max(1, min(index, max_num))
+        return (str(selected_index), selected_index)
 
-#--------------------------me  code------------------
-import os
-import torch
-import numpy as np
-from PIL import Image, ImageOps
-import folder_paths
-import node_helpers
-
+##############################################
+#               显示我的二维码                 #
+##############################################
 class LoadImagecode:
     @classmethod
     def INPUT_TYPES(s):
@@ -774,7 +612,7 @@ class LoadImagecode:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     FUNCTION = "load_image"
-    OUTPUT_NODE = True  # 允许直接显示输出
+    OUTPUT_NODE = True
 
     def load_image(self, **kwargs):
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -788,19 +626,15 @@ class LoadImagecode:
         img_np = np.array(img).astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img_np)[None,]
         
-        # 返回图像数据（ComfyUI 会自动尝试渲染）
         return (img_tensor,)
 
     @classmethod
     def IS_CHANGED(s, **kwargs):
         return "static_image"
 
- 
- 
- 
- 
-Influencer_regulator
-# 节点映射
+##############################################
+#               节点注册部分                 #
+##############################################
 NODE_CLASS_MAPPINGS = {
     "BreastSizeAdjuster": BreastSizeAdjuster,
     "BreastSizeAdjusternswf": BreastSizeAdjusternswf,
@@ -812,7 +646,6 @@ NODE_CLASS_MAPPINGS = {
     "LoadImagecode": LoadImagecode
 }
 
-# 节点显示名称
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BreastSizeAdjuster": "💓胸部大小调节器(木子AI)",
     "BreastSizeAdjusternswf": "💓胸部大小调节器NSWF版(木子AI)",
@@ -823,8 +656,3 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HiddenStringSwitch": "字符串切换器",
     "LoadImagecode": "微信公众号二维码"
 }
-
-
- 
-
- 
