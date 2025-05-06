@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageOps
 import node_helpers
 from colour.io.luts.iridas_cube import read_LUT_IridasCube
+import inspect  # 新增关键导入
 
 ##############################################
 #                Lora下载器                  #
@@ -234,7 +235,7 @@ class BreastSizeAdjuster(BaseLoraLoader):
     
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "apply_breast_size"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"
     OUTPUT_NODE = True
     
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
@@ -280,7 +281,7 @@ class BreastSizeAdjusternswf(BaseLoraLoader):
     
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "apply_breast_size"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"
     OUTPUT_NODE = True
     
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
@@ -326,7 +327,7 @@ class HandStabilityAdjuster(BaseLoraLoader):
     
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "apply_hand_stability"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"
     OUTPUT_NODE = True
     
     def apply_hand_stability(self, model, clip, stability_strength, info_text=None):
@@ -372,7 +373,7 @@ class SexyStyleAdjuster(BaseLoraLoader):
     
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "apply_sexy_style"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"
     OUTPUT_NODE = True
     
     def apply_sexy_style(self, model, clip, sexy_strength, info_text=None):
@@ -419,7 +420,7 @@ class Influencer_regulator(BaseLoraLoader):
     
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "apply_breast_size"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"
     OUTPUT_NODE = True
     
     def apply_breast_size(self, model, clip, size_strength, info_text=None):
@@ -432,7 +433,7 @@ class LUTDownloader:
     LUT_REPO = "https://huggingface.co/datasets/liguanwei/luts/resolve/main/"
     LUT_FILES = [
         "快速电影.cube",
-        "时尚电影.cube",
+        "时尚电影.cube", 
         "胶片颗粒质感电影.cube"
     ]
     
@@ -444,7 +445,7 @@ class LUTDownloader:
         os.makedirs(lut_dir, exist_ok=True)
         return lut_dir
     
-    @classmethod
+    @classmethod 
     def download_luts(cls):
         try:
             lut_dir = cls.get_lut_dir()
@@ -475,11 +476,17 @@ class LUTDownloader:
                         print(f"[LUT下载器] 下载失败 {lut_file}: {str(e)}")
         except Exception as e:
             print(f"[LUT下载器] 初始化错误: {str(e)}")
+        finally:
+            return True  # 确保始终返回，避免阻塞节点注册
 
 class ESSImageApplyLUT:
     @classmethod
     def INPUT_TYPES(s):
-        LUTDownloader.download_luts()
+        # 添加异常捕获防止下载失败影响节点注册
+        try:
+            LUTDownloader.download_luts()
+        except Exception as e:
+            print(f"[滤镜节点] LUT预下载失败: {str(e)}")
         
         lut_dir = LUTDownloader.get_lut_dir()
         lut_files = []
@@ -514,7 +521,7 @@ class ESSImageApplyLUT:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "execute"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增加调节"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/人物增强调节"  # 与截图分类保持一致
     OUTPUT_NODE = True
 
     def execute(self, image, lut_file, gamma_correction, clip_values, strength, info_text=None):
@@ -641,7 +648,7 @@ NODE_CLASS_MAPPINGS = {
     "HandStabilityAdjuster": HandStabilityAdjuster,
     "SexyStyleAdjuster": SexyStyleAdjuster,
     "Influencer_regulator": Influencer_regulator,
-    "ESS ImageApplyLUT": ESSImageApplyLUT, 
+    "ESSImageApplyLUT": ESSImageApplyLUT,  # 确保注册
     "HiddenStringSwitch": HiddenStringSwitch,
     "LoadImagecode": LoadImagecode
 }
@@ -649,10 +656,10 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BreastSizeAdjuster": "💓胸部大小调节器(木子AI)",
     "BreastSizeAdjusternswf": "💓胸部大小调节器NSWF版(木子AI)",
-    "HandStabilityAdjuster": "✋手部稳定调节器(木子AI)",
+    "HandStabilityAdjuster": "✋手部稳定调节器(木子AI)", 
     "SexyStyleAdjuster": "🔥性感风格调节器(木子AI)",
     "Influencer_regulator": "😍网感调节器(木子AI)",
-    "ESS ImageApplyLUT": "🔧 滤镜风格调节器", 
+    "ESSImageApplyLUT": "🔧 滤镜风格调节器",  # 显示名称
     "HiddenStringSwitch": "字符串切换器",
     "LoadImagecode": "微信公众号二维码"
 }
