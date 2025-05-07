@@ -607,9 +607,7 @@ class HiddenStringSwitch:
         selected_index = max(1, min(index, max_num))
         return (str(selected_index), selected_index)
 
-##############################################
-#               显示我的二维码                 #
-##############################################
+
 class LoadImagecode:
     @classmethod
     def INPUT_TYPES(s):
@@ -639,6 +637,55 @@ class LoadImagecode:
     def IS_CHANGED(s, **kwargs):
         return "static_image"
 
+
+
+
+##############################################
+#               文本输入节点                 #
+##############################################
+import comfy.sd
+from comfy.cli_args import args
+import comfy.utils
+import torch
+
+class TextDisplayNode:
+    """
+    文本显示节点
+    功能：接收输入文本，显示在节点界面，并输出文本
+    """
+    
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "jieshoutxt": ("STRING", {
+                    "multiline": True,
+                    "default": "输入文本",
+                    "dynamicPrompts": False
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("shuchutxt",)
+    FUNCTION = "process"
+    CATEGORY = "text"
+
+    def process(self, jieshoutxt):
+        # 在此处可以添加额外的文本处理逻辑
+        return (jieshoutxt,)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+
+
+
+
 ##############################################
 #               节点注册部分                 #
 ##############################################
@@ -650,16 +697,18 @@ NODE_CLASS_MAPPINGS = {
     "Influencer_regulator": Influencer_regulator,
     "ESSImageApplyLUT": ESSImageApplyLUT,  # 确保注册
     "HiddenStringSwitch": HiddenStringSwitch,
-    "LoadImagecode": LoadImagecode
+    "LoadImagecode": LoadImagecode,
+    "TextDisplayNode": TextDisplayNode, 
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BreastSizeAdjuster": "💓胸部大小调节器(木子AI)",
-    "BreastSizeAdjusternswf": "💓胸部大小调节器NSWF版(木子AI)",
-    "HandStabilityAdjuster": "✋手部稳定调节器(木子AI)", 
-    "SexyStyleAdjuster": "🔥性感风格调节器(木子AI)",
-    "Influencer_regulator": "😍网感调节器(木子AI)",
+    "BreastSizeAdjuster": "💓胸部大小调节器",
+    "BreastSizeAdjusternswf": "💓胸部大小调节器NSWF版",
+    "HandStabilityAdjuster": "✋手部稳定调节器", 
+    "SexyStyleAdjuster": "🔥性感风格调节器",
+    "Influencer_regulator": "😍网感调节器",
     "ESSImageApplyLUT": "🔧 滤镜风格调节器",  # 显示名称
     "HiddenStringSwitch": "字符串切换器",
-    "LoadImagecode": "微信公众号二维码"
+    "LoadImagecode": "微信公众号二维码",
+    "TextDisplayNode": "📝文本/提示词输入",
 }
