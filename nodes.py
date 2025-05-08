@@ -13,6 +13,14 @@ from PIL import Image, ImageOps
 import node_helpers
 from colour.io.luts.iridas_cube import read_LUT_IridasCube
 import inspect  # 新增关键导入
+#-------
+import comfy.sd
+from comfy.cli_args import args
+import random
+import glob
+from PIL import Image
+import folder_paths
+
 
 ##############################################
 #                Lora下载器                  #
@@ -607,7 +615,9 @@ class HiddenStringSwitch:
         selected_index = max(1, min(index, max_num))
         return (str(selected_index), selected_index)
 
-
+##############################################
+#               加载公众号二维码                 #
+##############################################
 class LoadImagecode:
     @classmethod
     def INPUT_TYPES(s):
@@ -643,11 +653,6 @@ class LoadImagecode:
 ##############################################
 #               文本输入节点                 #
 ##############################################
-import comfy.sd
-from comfy.cli_args import args
-import comfy.utils
-import torch
-
 class TextDisplayNode:
     """
     文本显示节点
@@ -672,7 +677,7 @@ class TextDisplayNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("shuchutxt",)
     FUNCTION = "process"
-    CATEGORY = "text"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/text"
 
     def process(self, jieshoutxt):
         # 在此处可以添加额外的文本处理逻辑
@@ -684,6 +689,110 @@ class TextDisplayNode:
 
 
 
+
+##############################################
+#               批次图片加载器                 #
+##############################################
+class ImageLoaderFromPath:
+    """
+    ✨ 木子AI图片加载器 ✨
+    功能：
+    - 从指定目录加载图片
+    - 支持顺序/随机两种读取模式
+    版本：2.0（新增顺序模式）
+    微信：stone_liwei
+    """
+    def __init__(self):
+        self.current_index = 0  # 用于顺序模式
+        self.image_cache = []  # 缓存图片列表
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {
+                    "default": "请输入完整路径",
+                    "tooltip": "相对于ComfyUI输入目录的路径"
+                }),
+                "mode": (["sequential", "random"], {
+                    "default": "sequential",
+                    "tooltip": "选择读取模式：顺序或随机"
+                }),
+                "seed": ("INT", {
+                    "default": 0, 
+                    "min": 0, 
+                    "max": 0xffffffffffffffff,
+                    "tooltip": "随机模式下的种子值（0表示完全随机）"
+                }),
+            },
+            "optional": {
+                "reset_counter": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "重置顺序模式的计数器"
+                }),
+            }
+        }
+    
+    RETURN_TYPES = ("STRING", "IMAGE", "INT")
+    RETURN_NAMES = ("image_path", "image", "当前序号")
+    FUNCTION = "load_image"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/懒人做号/图片相关"
+    OUTPUT_NODE = True
+
+    def scan_image_files(self, directory):
+        """扫描目录中的图片文件"""
+        base_dir = folder_paths.get_input_directory()
+        image_dir = os.path.join(base_dir, directory)
+        
+        image_extensions = ['*.png', '*.jpg', '*.jpeg', '*.webp', '*.bmp']
+        image_files = []
+        for ext in image_extensions:
+            image_files.extend(sorted(glob.glob(os.path.join(image_dir, ext))))
+        
+        if not image_files:
+            raise ValueError(f"目录中没有图片文件: {image_dir}")
+        
+        return image_files
+
+    def load_image(self, directory, mode, seed=0, reset_counter=False):
+        # 重置计数器
+        if reset_counter:
+            self.current_index = 0
+        
+        # 扫描图片文件（如果目录改变或首次运行）
+        if not hasattr(self, 'last_directory') or self.last_directory != directory or not self.image_cache:
+            self.image_cache = self.scan_image_files(directory)
+            self.last_directory = directory
+            self.current_index = 0
+        
+        if not self.image_cache:
+            raise ValueError("没有可用的图片文件")
+        
+        # 选择图片
+        if mode == "random":
+            random.seed(seed if seed != 0 else None)
+            selected_index = random.randint(0, len(self.image_cache) - 1)
+        else:
+            # 顺序模式
+            if self.current_index >= len(self.image_cache):
+                self.current_index = 0  # 循环读取
+            selected_index = self.current_index
+            self.current_index += 1
+        
+        selected_image = self.image_cache[selected_index]
+        
+        # 读取图片
+        try:
+            image = Image.open(selected_image)
+            image = image.convert("RGB")
+            image_tensor = torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
+            image_tensor = image_tensor.unsqueeze(0)
+            
+            return (selected_image, image_tensor, selected_index + 1)  # 返回1-based序号
+        except Exception as e:
+            raise ValueError(f"图片加载错误: {str(e)}")
+ 
+ 
 
 
 ##############################################
@@ -699,6 +808,7 @@ NODE_CLASS_MAPPINGS = {
     "HiddenStringSwitch": HiddenStringSwitch,
     "LoadImagecode": LoadImagecode,
     "TextDisplayNode": TextDisplayNode, 
+    "ImageLoaderFromPath": ImageLoaderFromPath,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -711,4 +821,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HiddenStringSwitch": "字符串切换器",
     "LoadImagecode": "微信公众号二维码",
     "TextDisplayNode": "📝文本/提示词输入",
-}
+    "ImageLoaderFromPath": "🖼️批次图片加载器（从路径）" 
+    }
