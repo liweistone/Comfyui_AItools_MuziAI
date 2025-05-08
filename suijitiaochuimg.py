@@ -67,7 +67,7 @@ class ImageLoaderFromFolder:
     RETURN_TYPES = ("IMAGE", "INT")
     RETURN_NAMES = ("image", "当前序号")
     FUNCTION = "load_image"
-    CATEGORY = "🎨公众号懂AI的木子做号工具/懒人做号"
+    CATEGORY = "🎨公众号懂AI的木子做号工具/懒人做号/图片相关"
     OUTPUT_NODE = True
 
     def scan_images(self, subfolder):
